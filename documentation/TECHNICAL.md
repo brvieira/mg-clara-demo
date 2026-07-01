@@ -8,24 +8,24 @@ Este documento descreve cada componente técnico da implementação, as decisõe
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        app.py (Streamlit)                   │
+│                  webapp/app.py (Streamlit)                  │
 │  sidebar.py ── chat.py ── debug_panel.py                    │
 └────────────────────────┬────────────────────────────────────┘
                          │ invoke(thread_id, customer_id, msg)
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                      src/agent.py                           │
+│                  ai-agent/src/agent.py                       │
 │     (async internamente; asyncio.run() na borda pública)    │
 └────────────────────────┬────────────────────────────────────┘
                          │
               ┌──────────┴──────────┐
               │  async with MCP     │
-              │  MultiServerClient  │── stdio ──► mcp_servers/
+              │  MultiServerClient  │── stdio ──► workshop-mcp/
               └──────────┬──────────┘            workshop_server.py
                          │                       (subprocesso)
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              LangGraph StateGraph (src/graph/)              │
+│           LangGraph StateGraph (ai-agent/src/graph/)         │
 │                                                             │
 │  START → load_memory → reasoning ←──────────────────┐      │
 │                            │                        │      │
@@ -74,13 +74,13 @@ LangGraph é um framework para construir agentes com fluxo de execução explíc
 
 ### O StateGraph
 
-Definido em `src/graph/build.py`. Um `StateGraph` é um grafo direcionado onde:
+Definido em `ai-agent/src/graph/build.py`. Um `StateGraph` é um grafo direcionado onde:
 - Cada **nó** é uma função `(state) -> dict` que retorna as chaves do estado que deseja atualizar
 - Cada **aresta** define a ordem de execução
 - O **estado** é um `TypedDict` compartilhado entre todos os nós
 
 ```python
-# src/graph/build.py
+# ai-agent/src/graph/build.py
 builder = StateGraph(AgentState)
 builder.add_node("load_memory", load_memory)
 # ...
@@ -91,7 +91,7 @@ A compilação (`compile`) é onde o checkpointer e o store são injetados. A pa
 
 ### O AgentState
 
-Definido em `src/graph/state.py`:
+Definido em `ai-agent/src/graph/state.py`:
 
 ```python
 class AgentState(TypedDict):
@@ -136,7 +136,7 @@ Isso significa que **o histórico de conversa não é passado pela aplicação**
 ### Configuração
 
 ```python
-# src/memory/checkpointer.py
+# ai-agent/src/memory/checkpointer.py
 MongoDBSaver.from_conn_string(
     MONGODB_URI,
     db_name=MONGODB_DB_NAME,
@@ -216,7 +216,7 @@ Vector search é uma técnica de busca que encontra documentos semanticamente si
 ### Geração de embeddings
 
 ```python
-# src/embeddings.py
+# ai-agent/src/embeddings.py
 response = _client.embeddings.create(input=text, model=EMBEDDING_MODEL)
 return response.data[0].embedding  # lista de 1536 floats
 ```
@@ -228,7 +228,7 @@ A cada turno da conversa, o embedding da mensagem do usuário é gerado em tempo
 ### A pipeline de aggregation
 
 ```python
-# src/tools/vector_search.py
+# ai-agent/src/tools/vector_search.py
 pipeline = [
     {
         "$vectorSearch": {
@@ -254,7 +254,7 @@ O parâmetro `numCandidates` define quantos vizinhos aproximados o índice ANN (
 ### Filtro por categoria
 
 ```python
-# src/graph/nodes.py — nó vector_search
+# ai-agent/src/graph/nodes.py — nó vector_search
 policy_types = {p["type"] for p in profile.get("policies", [])}
 if len(policy_types) == 1:
     category = policy_types.pop()  # "auto" ou "residencial"
@@ -305,7 +305,7 @@ A distinção entre os dois é importante: o MongoDBStore é gerenciado pelo Lan
 
 **Tipo:** LangChain `@tool` — não é um nó do grafo, é uma ferramenta disponível ao LLM.
 
-Definida em `src/tools/vector_search.py`. Quando o LLM decide chamar esta tool, o `tools_node` (ToolNode) executa a função e adiciona o resultado ao histórico como `ToolMessage`. O LLM vê os resultados das cláusulas no mesmo contexto da conversa e decide se deve chamar mais tools ou gerar a resposta final.
+Definida em `ai-agent/src/tools/vector_search.py`. Quando o LLM decide chamar esta tool, o `tools_node` (ToolNode) executa a função e adiciona o resultado ao histórico como `ToolMessage`. O LLM vê os resultados das cláusulas no mesmo contexto da conversa e decide se deve chamar mais tools ou gerar a resposta final.
 
 A **docstring** da tool é lida pelo LLM para decidir quando e como chamá-la — é ela que instrui "use quando o cliente perguntar sobre cobertura, exclusões, franquia... NÃO use para perguntas sobre dados do perfil". Ajustar a docstring é o principal ponto de controle sobre o comportamento da tool.
 
@@ -418,9 +418,9 @@ A UI está dividida em três módulos independentes:
 
 | Arquivo | Responsabilidade |
 |---|---|
-| `ui/sidebar.py` | Seleção de cliente, controle de `thread_id`, reset |
-| `ui/chat.py` | Renderização do histórico, captura de input, chamada ao backend |
-| `ui/debug_panel.py` | Exibição dos metadados de debug da última interação |
+| `webapp/ui/sidebar.py` | Seleção de cliente, controle de `thread_id`, reset |
+| `webapp/ui/chat.py` | Renderização do histórico, captura de input, chamada ao backend |
+| `webapp/ui/debug_panel.py` | Exibição dos metadados de debug da última interação |
 
 `app.py` apenas orquestra os três.
 
@@ -470,7 +470,7 @@ MCP é um protocolo aberto criado pela Anthropic para padronizar a forma como ag
 
 A demo poderia simplesmente importar as funções do servidor e chamá-las diretamente. Mas isso não demonstra o ponto arquitetural mais importante: em produção, o sistema de oficinas parceiras pertence a um terceiro — fora do codebase, fora da governança da seguradora. O MCP simula esse desacoplamento real: o agente conhece apenas o **contrato** da tool (nome, parâmetros, descrição), nunca a implementação.
 
-### O servidor MCP (`mcp_servers/workshop_server.py`)
+### O servidor MCP (`workshop-mcp/workshop_server.py`)
 
 Implementado com `FastMCP` (parte do SDK oficial `mcp`). Expõe duas tools:
 
@@ -478,7 +478,7 @@ Implementado com `FastMCP` (parte do SDK oficial `mcp`). Expõe duas tools:
 
 **`consultar_agenda_pericia(oficina_id, urgencia)`** — retorna 3 slots de horário disponíveis. `urgencia=urgente` começa a contar a partir de 1 dia, `normal` a partir de 2.
 
-O servidor roda como **processo separado via stdio**: quando o agente inicializa o `MultiServerMCPClient`, ele executa `python mcp_servers/workshop_server.py` como subprocesso e se comunica via stdin/stdout JSON-RPC.
+O servidor roda como **processo separado via stdio**: quando o agente inicializa o `MultiServerMCPClient`, ele executa `python workshop-mcp/workshop_server.py` como subprocesso e se comunica via stdin/stdout JSON-RPC.
 
 ### Integração com o grafo (roteamento condicional)
 

@@ -109,6 +109,7 @@ def invoke(thread_id: str, customer_id: str, message: str) -> dict:
     """
     Invoca o agente ClaraSeg para uma mensagem do usuário.
 
+
     thread_id: identifica a sessão/conversa atual (memória de curto prazo)
     customer_id: identifica o cliente (memória de longo prazo e perfil)
     message: texto da mensagem do usuário
