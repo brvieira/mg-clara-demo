@@ -23,8 +23,8 @@ def _get_connections():
     return _checkpointer, _store
 
 
-def _extract_turn_tool_calls(messages: list, user_message: str) -> list[dict]:
-    """Extrai as tool calls feitas no turno atual (após a última mensagem do usuário)."""
+def _turn_messages_since(messages: list, user_message: str) -> list:
+    """Retorna as mensagens do turno atual (após a última mensagem do usuário)."""
     last_human_idx = None
     for i in range(len(messages) - 1, -1, -1):
         if isinstance(messages[i], HumanMessage) and messages[i].content == user_message:
@@ -34,7 +34,19 @@ def _extract_turn_tool_calls(messages: list, user_message: str) -> list[dict]:
     if last_human_idx is None:
         return []
 
-    turn_messages = messages[last_human_idx + 1:]
+    return messages[last_human_idx + 1:]
+
+
+def _extract_turn_response_text(turn_messages: list) -> str:
+    """Concatena o conteúdo de todas as AIMessage do turno — o modelo pode narrar
+    (ex: acolhimento, menção a sinistro) antes de emitir uma tool call, e essa
+    narração não deve ser descartada."""
+    parts = [m.content for m in turn_messages if isinstance(m, AIMessage) and m.content]
+    return "\n\n".join(parts)
+
+
+def _extract_turn_tool_calls(turn_messages: list) -> list[dict]:
+    """Extrai as tool calls feitas no turno atual."""
     calls = []
 
     for i, msg in enumerate(turn_messages):
@@ -81,14 +93,14 @@ async def _invoke_async(thread_id: str, customer_id: str, message: str) -> dict:
     )
 
     result_messages = result.get("messages", [])
-    last_ai = result_messages[-1]
+    turn_messages = _turn_messages_since(result_messages, message)
 
     return {
-        "response": last_ai.content,
+        "response": _extract_turn_response_text(turn_messages) or result_messages[-1].content,
         "debug": {
             "long_term_facts": result.get("long_term_facts", []),
             "new_fact_saved": result.get("new_fact_to_save"),
-            "tool_calls_made": _extract_turn_tool_calls(result_messages, message),
+            "tool_calls_made": _extract_turn_tool_calls(turn_messages),
         },
     }
 
