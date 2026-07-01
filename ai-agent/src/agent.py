@@ -8,6 +8,7 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from src.memory.checkpointer import get_checkpointer
 from src.memory.store import get_store
 from src.graph.build import build_graph
+from src.graph.nodes import ANSWER_LLM_TAG
 from src.tools.mcp_client import MCP_SERVER_CONFIG
 from src.tools.vector_search import vector_search_clausulas
 
@@ -70,28 +71,32 @@ def _extract_turn_tool_calls(turn_messages: list) -> list[dict]:
     return calls
 
 
-async def _invoke_async(thread_id: str, customer_id: str, message: str) -> dict:
+async def _build_graph_with_tools():
+    """Monta o grafo com as tools locais + MCP remotas. Reconstruído a cada chamada
+    porque a lista de tools MCP é buscada de novo em cada invocação (custo baixo:
+    só construção de objetos Python, ver docstring do módulo)."""
     checkpointer, store = _get_connections()
 
     mcp = MultiServerMCPClient(MCP_SERVER_CONFIG)
     mcp_tools = await mcp.get_tools()
 
-    # Todas as tools sob o mesmo tools_node: vector search local + MCP de oficinas
+    # Todas as tools sob o mesmo tools_node: vector search local + MCP de oficinas/apólices
     all_tools = [vector_search_clausulas] + mcp_tools
 
-    graph = build_graph(checkpointer, store, all_tools)
+    return build_graph(checkpointer, store, all_tools)
 
-    result = await graph.ainvoke(
-        {
-            "customer_id": customer_id,
-            "messages": [HumanMessage(content=message)],
-            "long_term_facts": [],
-            "customer_profile": None,
-            "new_fact_to_save": None,
-        },
-        config={"configurable": {"thread_id": thread_id}},
-    )
 
+def _build_input_state(customer_id: str, message: str) -> dict:
+    return {
+        "customer_id": customer_id,
+        "messages": [HumanMessage(content=message)],
+        "long_term_facts": [],
+        "customer_profile": None,
+        "new_fact_to_save": None,
+    }
+
+
+def _finalize(result: dict, message: str) -> dict:
     result_messages = result.get("messages", [])
     turn_messages = _turn_messages_since(result_messages, message)
 
@@ -103,6 +108,17 @@ async def _invoke_async(thread_id: str, customer_id: str, message: str) -> dict:
             "tool_calls_made": _extract_turn_tool_calls(turn_messages),
         },
     }
+
+
+async def _invoke_async(thread_id: str, customer_id: str, message: str) -> dict:
+    graph = await _build_graph_with_tools()
+
+    result = await graph.ainvoke(
+        _build_input_state(customer_id, message),
+        config={"configurable": {"thread_id": thread_id}},
+    )
+
+    return _finalize(result, message)
 
 
 def invoke(thread_id: str, customer_id: str, message: str) -> dict:
@@ -122,3 +138,38 @@ def invoke(thread_id: str, customer_id: str, message: str) -> dict:
         - tool_calls_made: lista de {tool_name, input, output} das tools chamadas neste turno
     """
     return asyncio.run(_invoke_async(thread_id, customer_id, message))
+
+
+async def astream(thread_id: str, customer_id: str, message: str):
+    """
+    Versão em streaming de invoke(), usada pelo endpoint SSE da API (src/api.py).
+    Chamador já deve estar em contexto async (ex: handler FastAPI) — ao contrário de
+    invoke(), não há wrapper síncrono aqui.
+
+    thread_id / customer_id / message: mesmos parâmetros de invoke().
+
+    Gera (yield) dicts conforme o turno progride:
+      - {"type": "token", "content": str} — cada pedaço de texto da resposta final,
+        assim que o LLM o produz (chamadas de tool não geram tokens aqui).
+      - {"type": "done", "response": str, "debug": {...}} — ao final do turno, mesmo
+        formato retornado por invoke().
+      - {"type": "error", "detail": str} — se a execução falhar; encerra o gerador.
+    """
+    config = {"configurable": {"thread_id": thread_id}}
+
+    try:
+        graph = await _build_graph_with_tools()
+        async for event in graph.astream_events(_build_input_state(customer_id, message), config=config):
+            if event["event"] != "on_chat_model_stream":
+                continue
+            if ANSWER_LLM_TAG not in event.get("tags", []):
+                continue
+            chunk_content = event["data"]["chunk"].content
+            if chunk_content:
+                yield {"type": "token", "content": chunk_content}
+    except Exception as e:
+        yield {"type": "error", "detail": str(e)}
+        return
+
+    final_state = await graph.aget_state(config)
+    yield {"type": "done", **_finalize(final_state.values, message)}

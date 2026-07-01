@@ -11,6 +11,11 @@ from src.graph.state import AgentState
 
 llm = ChatOpenAI(model=LLM_MODEL, temperature=0.5)
 
+# Tag usado para distinguir, no streaming de eventos (astream_events), os tokens da
+# resposta final ao cliente dos tokens da chamada interna de extração de fato — ambas
+# rodam dentro do nó "reasoning" e seriam indistinguíveis sem essa marcação.
+ANSWER_LLM_TAG = "clara_answer"
+
 SYSTEM_PROMPT = """Você é Clara, agente de atendimento da Vivaz Seguros, uma seguradora de auto, residencial e vida.
 Responda sempre em português, de forma cordial, clara e empática — e com bom nível de detalhe técnico (prazos, documentos, valores, condições) sempre que o tema exigir. Objetiva significa sem enrolação, não significa resposta curta ou rasa.
 
@@ -95,7 +100,7 @@ def _extract_fact(last_human: str, response_content: str) -> dict | None:
         SystemMessage(content=EXTRACT_FACT_PROMPT),
         HumanMessage(content=f"Mensagem do usuário: {last_human}\nResposta dada: {response_content}"),
     ]
-    fact_response = llm.invoke(extract_messages)
+    fact_response = llm.invoke(extract_messages)  # sem ANSWER_LLM_TAG: não deve ser streamado
     try:
         parsed = json.loads(fact_response.content)
         if parsed.get("has_fact"):
@@ -134,6 +139,7 @@ def make_reasoning(all_tools: list):
     all_tools deve incluir vector_search_clausulas + tools MCP de oficinas.
     """
     bound_llm = llm.bind_tools(all_tools) if all_tools else llm
+    bound_llm = bound_llm.with_config(tags=[ANSWER_LLM_TAG])
 
     def reasoning(state: AgentState) -> dict:
         messages = state.get("messages", [])
