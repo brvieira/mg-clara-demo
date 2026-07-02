@@ -1,0 +1,27 @@
+<svg width="120" height="96" viewBox="0 0 120 96" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- Braço esquerdo -->
+    <path d="M18 16
+       C12 10, 3 10, -3 16
+       C-9 22, -9 31, -3 37
+       L42 82
+       C48 88, 57 88, 63 82
+       L72 73
+       L18 16Z" fill="#7B3DBB" />
+
+    <!-- Braço direito -->
+    <path d="M102 16
+       C108 10, 117 10, 123 16
+       C129 22, 129 31, 123 37
+       L78 82
+       C72 88, 63 88, 57 82
+       L48 73
+       L102 16Z" fill="#00A99D" />
+
+    <!-- Sobreposição central -->
+    <path d="M48 73
+       L60 61
+       L72 73
+       L63 82
+       C57 88,48 88,42 82
+       L48 73Z" fill="#4B1D72" />
+</svg>

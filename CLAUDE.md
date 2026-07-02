@@ -15,7 +15,8 @@ Repo layout:
 |---|---|
 | `ai-agent/` | Agent backend: LangGraph graph, memory, tools, `src/` package, smoke tests, FastAPI HTTP API (`src/api.py`, own Dockerfile/requirements) |
 | `workshop-mcp/` | Standalone MCP server simulating a partner workshop network (own Dockerfile/requirements) |
-| `webapp/` | Streamlit UI (`app.py` + `ui/`) |
+| `webapp/` | React SPA (Vite) — talks to `ai-agent` (`/health`, `/chat/stream`) and `customer-api` (`/clients*`) over HTTP/SSE only, never imports `ai-agent/src` or touches Mongo directly; own Dockerfile (multi-stage build, served by nginx) |
+| `customer-api/` | Standalone Node.js/Express backend, read-only against `customer_profile` (`GET /clients`, `GET /clients/{id}`) for the React UI's sidebar/profile modal; own Dockerfile, reuses the root `.env` for Mongo credentials |
 | `data/` | DB seeding (`seed.py`, seed JSON) and the PDF ingestion pipeline (`ingestion/ingest.py`, `source_docs/`) |
 | `specifications/` | Original agent/interface specs |
 | `documentation/` | Setup guide, technical writeup, business context, demo script |
@@ -40,8 +41,13 @@ python data/ingestion/ingest.py --input-dir data/source_docs
 docker compose up workshop-mcp                 # dockerized, streamable-http on :8000
 python workshop-mcp/workshop_server.py         # local, same transport/port
 
-# Run the webapp
-streamlit run webapp/app.py
+# Run the customer-api backend (either) -- reads MONGODB_URI/MONGODB_DB_NAME from the root .env
+docker compose up customer-api                 # dockerized, on :8090
+cd customer-api && npm install && npm run dev  # local, same routes
+
+# Run the webapp (React + Vite) -- needs ai-agent (:8080) and customer-api (:8090) running
+docker compose up webapp                       # dockerized (nginx serving a prod build), on :5173
+cd webapp && npm install && npm run dev        # local, dev server with HMR on :5173
 
 # Run the agent HTTP API (either)
 docker compose up ai-agent                                          # dockerized, on :8080
@@ -61,14 +67,19 @@ filter field, named to match `VECTOR_INDEX_NAME` in `.env`.
 
 ## Architecture
 
-**Coupling point:** the Streamlit UI only ever calls `ai-agent/src/agent.invoke(thread_id, customer_id, message) -> dict`.
-All graph/memory/tool complexity is encapsulated behind that one function, which returns
-`{"response": str, "debug": {...}}` for the UI's transparency panel.
+**Coupling point:** everything that goes through the LangGraph agent is reached through
+`ai-agent/src/agent.invoke(thread_id, customer_id, message) -> dict` (and its streaming counterpart,
+`agent.astream`) — all graph/memory/tool complexity is encapsulated behind those two functions, which is what
+`ai-agent/src/api.py` (`/chat`, `/chat/stream`) wraps for the React UI's chat and transparency panel. Read-only
+listing/lookup of customer profiles for the sidebar and profile modal does **not** go through the agent at all
+— it's served by the separate `customer-api/` Node.js backend, which queries `customer_profile` directly and by
+design has zero knowledge of the graph, tools, or memory layers. The webapp only ever talks HTTP to these two
+backends; it never imports `ai-agent/src` or connects to Mongo itself.
 
 `agent.py` is async internally — it opens a `MultiServerMCPClient` (HTTP transport, `WORKSHOP_MCP_URL`) to fetch
 MCP tools, builds the graph, and calls `graph.ainvoke(...)` — but `invoke()` is a sync wrapper (`asyncio.run(...)`)
-since Streamlit calls it synchronously. The graph is rebuilt on every call (cheap — just Python object
-construction) because the MCP tool list is fetched fresh each time.
+so `api.py`'s `POST /chat` handler (a plain sync `def`) can call it directly. The graph is rebuilt on every call
+(cheap — just Python object construction) because the MCP tool list is fetched fresh each time.
 
 **`ai-agent/src/api.py`** is a second, thinner caller of the same module: a FastAPI app with `GET /health`
 (pings Mongo), `POST /chat` (wraps `agent.invoke`), and `POST /chat/stream` (wraps `agent.astream`, an SSE
@@ -78,9 +89,9 @@ distinguish the main answer LLM call from the second, untagged fact-extraction c
 makes on the same node; without it the two calls' token streams would be indistinguishable. The graph-building
 step in `astream` is inside the `try` block (unlike a plain `ainvoke`) so an MCP connection failure surfaces as
 an `{"type": "error"}` SSE event instead of killing the HTTP stream. Runs containerized via
-`ai-agent/Dockerfile` — its `requirements.txt` deliberately excludes `docling`/`streamlit` (ingestion- and
-webapp-only) to keep the serving image lean; in `docker-compose.yml` it overrides `WORKSHOP_MCP_URL`/
-`POLICY_MCP_URL` to the sibling containers' service names since `localhost` doesn't resolve across containers.
+`ai-agent/Dockerfile` — its `requirements.txt` deliberately excludes `docling` (ingestion-only) to keep the
+serving image lean; in `docker-compose.yml` it overrides `WORKSHOP_MCP_URL`/`POLICY_MCP_URL` to the sibling
+containers' service names since `localhost` doesn't resolve across containers.
 
 **LangGraph flow** (`ai-agent/src/graph/build.py`):
 
@@ -135,15 +146,16 @@ after `$vectorSearch`, as a second line of defense. `data/seed.py` is unrelated 
 | `short_term_memory` | LangGraph `MongoDBSaver` | Internal schema — don't edit manually |
 | `long_term_memory` | LangGraph `MongoDBStore` | Internal schema — don't edit manually |
 | `policy_chunks` | `data/ingestion/ingest.py` | Clause chunks + embeddings; needs the manual Atlas Vector Search index |
-| `customer_profile` | `data/seed.py` | Customer policies/claims (`policies`, `claims` fields drive the system prompt's claim-lookup logic) |
+| `customer_profile` | `data/seed.py` + `customer-api` | Customer policies/claims (`policies`, `claims` fields drive the system prompt's claim-lookup logic); read-only by `customer-api` for the React UI |
 | `workshops` | `data/seed.py` + `workshop-mcp` | Partner workshops; `appointments` embedded per workshop doc |
 
 ## Key conventions
 
-- **Cross-directory imports are path-hacked, not packaged.** `ai-agent/src` is not pip-installed; `webapp/app.py`
-  and `data/seed.py` prepend `ai-agent/` to `sys.path` at the top of the file so `from src...` resolves, which
-  is why they can be run from the repo root. `ai-agent/tests/test_agent_smoke.py` has no such shim, so it must
-  be run with `cwd=ai-agent/`.
+- **Cross-directory imports are path-hacked, not packaged.** `ai-agent/src` is not pip-installed; `data/seed.py`
+  prepends `ai-agent/` to `sys.path` at the top of the file so `from src...` resolves, which is why it can be
+  run from the repo root. `ai-agent/tests/test_agent_smoke.py` has no such shim, so it must be run with
+  `cwd=ai-agent/`. `webapp/` (React) and `customer-api/` (Node.js) are separate language ecosystems entirely —
+  they never import from `ai-agent/src`, only call it over HTTP.
 - **The system prompt is the primary behavior-control surface**, not a config file — it's a large string in
   `ai-agent/src/graph/nodes.py`. It enforces a strict paragraph structure for claim/accident-related replies
   (acknowledgement -> related-claim lookup in `customer_profile.claims` -> tool-sourced technical answer ->
