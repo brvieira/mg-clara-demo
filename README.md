@@ -1,240 +1,298 @@
 # ClaraSeg
 
-Agente conversacional de atendimento ao cliente para a **Vivaz Seguros** (seguradora fictícia), construído como demonstração técnica de LangGraph + MongoDB Atlas Vector Search.
+**Um agente de atendimento ao cliente com memória, RAG e ações reais — não apenas um chatbot de FAQ.**
 
-A Clara responde perguntas sobre cobertura de apólice e status de sinistro em linguagem natural, mantendo memória de curto e longo prazo e buscando cláusulas contratuais por similaridade semântica.
-
----
-
-## Estrutura do repositório
-
-| Diretório | Conteúdo |
-|---|---|
-| `ai-agent/` | Backend do agente (LangGraph, memória, tools, `src/`) e testes |
-| `workshop-mcp/` | Servidor MCP standalone (rede de oficinas parceiras) |
-| `webapp/` | Interface Streamlit (`app.py` + `ui/`) |
-| `data/` | Seed do banco, pipeline de ingestão e PDFs de origem (`source_docs/`) |
-| `specifications/` | Especificações originais do agente e da interface |
-| `documentation/` | Guia de setup, documentação técnica e contexto de negócio |
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178C6?logo=typescript&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![LangGraph](https://img.shields.io/badge/LangGraph-orquestração-1C3C3C)
+![MongoDB Atlas](https://img.shields.io/badge/MongoDB_Atlas-Vector_Search-47A248?logo=mongodb&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-blue)
 
 ---
 
-## Arquitetura
+## 💡 Sobre o Projeto
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│               webapp/app.py (Streamlit)                     │
-│         sidebar.py  ──  chat.py  ──  debug_panel.py         │
-└────────────────────────┬────────────────────────────────────┘
-                         │ invoke(thread_id, customer_id, msg)
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│                  ai-agent/src/agent.py                      │
-│      (async internamente; asyncio.run() na borda pública)   │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-              ┌──────────┴──────────┐
-              │  MultiServerMCP     │── stdio ──► workshop-mcp/
-              │  Client             │            workshop_server.py
-              └──────────┬──────────┘            (subprocesso)
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│         LangGraph StateGraph (ai-agent/src/graph/)          │
-│                                                             │
-│  START → load_memory → reasoning ←──────────────────┐      │
-│                            │                        │      │
-│                     [tools_condition]          tools_node   │
-│                            │ sem tools          (ToolNode)  │
-│                            ↓                        │      │
-│                       save_memory              tool call   │
-│                            │                               │
-│                           END                              │
-└─────────┬───────────────────┬───────────────────────────────┘
-          │                   │
-          ▼                   ▼
-┌──────────────────┐  ┌──────────────────────────────────────┐
-│  MongoDB Atlas   │  │          OpenAI API                  │
-│                  │  │                                      │
-│  short_term_     │  │  gpt-4o-mini                         │
-│  memory          │  │  (reasoning + extração de fatos)     │
-│  (checkpointer)  │  │                                      │
-│                  │  │  text-embedding-3-small               │
-│  long_term_      │  │  (embeddings para vector search)     │
-│  memory          │  └──────────────────────────────────────┘
-│  (store)         │
-│                  │
-│  policy_clauses  │
-│  (vector search) │
-│                  │
-│  customer_       │
-│  profile         │
-└──────────────────┘
-```
+ClaraSeg é uma demonstração técnica de um agente conversacional em português para a **Vivaz Seguros**, uma
+seguradora fictícia. A "Clara" resolve o problema central de atendimento em seguros: responder dúvidas de
+cobertura contratual e status de sinistro exige cruzar **linguagem natural**, **texto contratual longo** (apólices
+em PDF) e **sistemas transacionais de terceiros** (oficinas parceiras, agendamento de perícia) — algo que FAQs
+estáticas e chatbots baseados em regras não resolvem bem.
 
-### Fluxo de execução por turno
+O agente entrega:
+- Respostas ancoradas nas cláusulas reais da apólice do cliente (não alucinadas), via busca semântica.
+- Continuidade entre conversas: lembra fatos duráveis do cliente (troca de veículo, mudança de endereço) mesmo em uma nova sessão.
+- Capacidade de agir, não só informar: consulta oficinas próximas, agenda/altera/cancela perícias e cria/atualiza apólices através de servidores MCP externos.
 
-1. **`load_memory`** — carrega fatos de longo prazo do cliente (`MongoDBStore`) e perfil operacional (`customer_profile`).
-2. **`reasoning`** — o LLM recebe o system prompt com perfil + fatos e decide: chamar tool(s) ou responder diretamente.
-3. **`tools_node`** — se o LLM emitiu tool calls, executa as ferramentas e adiciona os resultados como `ToolMessage`. Volta para `reasoning`.
-4. **`save_memory`** — ao final (sem mais tool calls), persiste fato novo no `MongoDBStore` se a resposta indicar um.
+## 🚀 Funcionalidades Principais
 
----
+- 💬 **Chat com streaming** token a token (SSE) com painel de transparência mostrando cada tool call em tempo real.
+- 📄 **Busca semântica em cláusulas de apólice** (Atlas Vector Search) a partir de PDFs reais, ingeridos via Docling.
+- 🧠 **Memória de curto prazo** (histórico da conversa por `thread_id`) e **de longo prazo** (fatos duráveis por cliente, persistem entre sessões).
+- 🔧 **Integração via MCP** com dois servidores simulando sistemas parceiros: rede de oficinas (`workshop-mcp`) e gestão de apólices (`policy-mcp`).
+- 👤 **Sidebar de clientes e perfil** servidos por uma API Node.js dedicada e somente-leitura (`customer-api`), desacoplada do agente.
+- 🐳 **Stack 100% containerizada** via `docker-compose`, com cada serviço em sua própria imagem.
 
-## Componentes técnicos
-
-### Memória de curto prazo — `MongoDBSaver` (checkpointer)
-
-O estado completo do grafo (incluindo o histórico de `messages`) é persistido após cada nó via `langgraph-checkpoint-mongodb`. A chave é o `thread_id`:
-
-```
-thread_id = "{customer_id}_{uuid_hex[:8]}"
-```
-
-Nova conversa = novo `thread_id` = histórico zerado. O histórico não é reenviado pela UI a cada turno — o LangGraph o recupera automaticamente do MongoDB antes de cada invocação.
-
-### Memória de longo prazo — `MongoDBStore`
-
-Fatos duradouros sobre o cliente (mudança de veículo, endereço, preferência de contato) são persistidos via `langgraph-store-mongodb` com namespace `(customer_id, "facts")`.
-
-O nó `reasoning` faz uma segunda chamada ao LLM ao final de cada turno para classificar se a mensagem contém um fato novo. Retorna JSON estruturado:
-
-```json
-{"has_fact": true, "key": "vehicle_change", "fact": "Cliente trocou para Compass 2025"}
-```
-
-O `MongoDBStore` é **independente do `thread_id`** — fatos persistem entre sessões distintas do mesmo cliente.
-
-### Atlas Vector Search
-
-Cláusulas da apólice ficam na coleção `policy_clauses` com embeddings gerados por `text-embedding-3-small` (1536 dimensões). A busca usa `$vectorSearch` na pipeline de aggregation:
-
-```python
-{"$vectorSearch": {
-    "index": VECTOR_INDEX_NAME,
-    "path": "embedding",
-    "queryVector": query_embedding,
-    "numCandidates": 50,
-    "limit": 3,
-}}
-```
-
-Clientes com um único tipo de apólice recebem filtro automático por `category` ("auto" ou "residencial"), demonstrando pre-filtering combinado com vector search.
-
-O índice precisa ser criado manualmente na Atlas UI (criação programática não é suportada via driver pymongo para índices de search).
-
-### Integração MCP — rede de oficinas
-
-O servidor `workshop-mcp/workshop_server.py` (implementado com `FastMCP`) roda como subprocesso via stdio e expõe duas tools:
-
-- **`buscar_oficinas_proximas(cep, tipo_servico)`** — retorna até 3 oficinas parceiras ordenadas por distância.
-- **`consultar_agenda_pericia(oficina_id, urgencia)`** — retorna 3 slots disponíveis para perícia.
-
-O agente conhece apenas o contrato das tools (nome, parâmetros, descrição), nunca a implementação — simulando uma integração real com sistema externo de terceiro.
-
-O subprocesso é iniciado e encerrado a cada invocação (`async with MultiServerMCPClient`). Custo: ~150ms por mensagem.
-
----
-
-## Modelo de dados (MongoDB)
-
-| Coleção | Gerenciada por | Conteúdo |
-|---|---|---|
-| `short_term_memory` | LangGraph (`MongoDBSaver`) | Checkpoints da conversa por `thread_id` |
-| `long_term_memory` | LangGraph (`MongoDBStore`) | Fatos persistentes por `customer_id` |
-| `policy_clauses` | Aplicação (seed) | Cláusulas contratuais com embeddings |
-| `customer_profile` | Aplicação (seed) | Apólices, sinistros e dados cadastrais |
-
-As coleções gerenciadas pelo LangGraph têm schema interno — não devem ser editadas manualmente.
-
----
-
-## Interface Streamlit
-
-| Módulo | Responsabilidade |
-|---|---|
-| `webapp/ui/sidebar.py` | Seleção de cliente e controle de `thread_id` |
-| `webapp/ui/chat.py` | Renderização do histórico e captura de input |
-| `webapp/ui/debug_panel.py` | Painel de transparência com dados de cada interação |
-
-O painel de debug (expandível) exibe: cláusulas retornadas pelo vector search com score de similaridade, fatos de longo prazo usados na resposta e fato novo gravado — tornando a arquitetura visível durante a demonstração.
-
----
-
-## Setup
-
-### Pré-requisitos
-
-- Python 3.11+
-- Cluster MongoDB Atlas com Atlas Vector Search habilitado
-- Chave de API OpenAI
-
-### Instalação
-
-```bash
-pip install -r requirements.txt
-cp .env.example .env
-# preencher MONGODB_URI, OPENAI_API_KEY e MONGODB_DB_NAME no .env
-```
-
-### Seed do banco
-
-```bash
-python data/seed.py
-```
-
-Popula `customer_profile` e `policy_clauses` (com embeddings gerados via OpenAI).
-
-### Índice de vector search
-
-Crie manualmente na Atlas UI:
-
-```json
-{
-  "fields": [
-    {
-      "type": "vector",
-      "path": "embedding",
-      "numDimensions": 1536,
-      "similarity": "cosine"
-    },
-    {
-      "type": "filter",
-      "path": "category"
-    }
-  ]
-}
-```
-
-Selecione a coleção `policy_clauses` e nomeie o índice conforme `VECTOR_INDEX_NAME` no `.env`.
-
-### Executar
-
-```bash
-streamlit run webapp/app.py
-```
-
----
-
-## Stack
+## 🛠️ Tecnologias Utilizadas
 
 | Camada | Tecnologia |
 |---|---|
-| Interface | Streamlit |
-| Orquestração do agente | LangGraph |
-| Memória curto prazo | `langgraph-checkpoint-mongodb` |
-| Memória longo prazo | `langgraph-store-mongodb` |
-| Banco de dados | MongoDB Atlas |
-| Busca semântica | Atlas Vector Search |
-| LLM e embeddings | OpenAI (`gpt-4o-mini`, `text-embedding-3-small`) |
-| Integração externa | MCP via `langchain-mcp-adapters` + `FastMCP` |
+| Orquestração do agente | LangGraph (grafo de estados: `load_memory → reasoning ↔ tools_node → save_memory`) |
+| LLM / embeddings | OpenAI `gpt-4o-mini` + `text-embedding-3-small` |
+| Memória curto/longo prazo | `langgraph-checkpoint-mongodb` / `langgraph-store-mongodb` |
+| Banco de dados | MongoDB Atlas + Atlas Vector Search |
+| Ingestão de PDFs | Docling (`HybridChunker`) |
+| API do agente | FastAPI (`/health`, `/chat`, `/chat/stream` via SSE) |
+| Ferramentas externas | MCP (`FastMCP`, transporte HTTP/streamable-http) |
+| API de clientes | Node.js + Express + TypeScript |
+| Frontend | React 19 + Vite + TypeScript + Tailwind + Zustand |
+| Infraestrutura | Docker / Docker Compose, Nginx (serve o build do webapp) |
 
----
+## 📦 Estrutura de Pastas
 
-## Escopo e limitações
+```
+mg-demo/
+├── .env.example
+├── .gitignore
+├── CLAUDE.md
+├── README.md
+├── docker-compose.yml
+├── logotipo.png
+├── requirements.txt
+│
+├── ai-agent/                          # Backend do agente: grafo LangGraph, memória, tools, API FastAPI
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   ├── src/
+│   │   ├── __init__.py
+│   │   ├── agent.py                   # invoke()/astream() — único ponto de acoplamento externo
+│   │   ├── api.py                     # FastAPI: /health, /chat, /chat/stream
+│   │   ├── config.py
+│   │   ├── db.py
+│   │   ├── embeddings.py
+│   │   ├── graph/
+│   │   │   ├── __init__.py
+│   │   │   ├── build.py               # Definição do StateGraph
+│   │   │   ├── nodes.py               # load_memory, reasoning, save_memory + system prompt
+│   │   │   └── state.py
+│   │   ├── memory/
+│   │   │   ├── __init__.py
+│   │   │   ├── checkpointer.py        # MongoDBSaver (curto prazo)
+│   │   │   └── store.py               # MongoDBStore (longo prazo)
+│   │   └── tools/
+│   │       ├── __init__.py
+│   │       ├── mcp_client.py          # MultiServerMCPClient (workshop-mcp, policy-mcp)
+│   │       └── vector_search.py       # vector_search_clausulas
+│   └── tests/
+│       └── test_agent_smoke.py
+│
+├── customer-api/                      # API Node/Express somente-leitura sobre customer_profile
+│   ├── .env.example
+│   ├── .gitignore
+│   ├── Dockerfile
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── tsconfig.json
+│   └── src/
+│       ├── db.ts
+│       └── server.ts                  # GET /clients, GET /clients/:customerId
+│
+├── policy-mcp/                        # Servidor MCP — criação/atualização de apólices
+│   ├── Dockerfile
+│   ├── policy_server.py
+│   └── requirements.txt
+│
+├── workshop-mcp/                      # Servidor MCP — rede de oficinas parceiras e agendamento
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── workshop_server.py
+│
+├── webapp/                            # SPA React (chat, sidebar de clientes, painel de debug)
+│   ├── .dockerignore
+│   ├── .env.example
+│   ├── .gitignore
+│   ├── .oxlintrc.json
+│   ├── Dockerfile
+│   ├── README.md
+│   ├── components.json
+│   ├── index.html
+│   ├── nginx.conf
+│   ├── package-lock.json
+│   ├── package.json
+│   ├── tsconfig.app.json
+│   ├── tsconfig.json
+│   ├── tsconfig.node.json
+│   ├── vite.config.ts
+│   ├── public/
+│   │   ├── favicon.svg
+│   │   └── icons.svg
+│   └── src/
+│       ├── App.tsx
+│       ├── main.tsx
+│       ├── index.css
+│       ├── types.ts
+│       ├── vite-env.d.ts
+│       ├── assets/
+│       │   ├── logo.svg
+│       │   └── logotipo.png
+│       ├── components/
+│       │   ├── AppHeader.tsx
+│       │   ├── ChatBubble.tsx
+│       │   ├── ChatPanel.tsx
+│       │   ├── ClientCard.tsx
+│       │   ├── ClientProfileDialog.tsx
+│       │   ├── ClientSidebar.tsx
+│       │   ├── CollapsedRail.tsx
+│       │   ├── DebugPanel.tsx
+│       │   ├── LongTermFactsPanel.tsx
+│       │   ├── ToolCallCard.tsx
+│       │   ├── TypingIndicator.tsx
+│       │   └── ui/                    # avatar, badge, button, card, dialog, input,
+│       │                               # scroll-area, separator, tabs, tooltip (shadcn)
+│       ├── lib/
+│       │   ├── api.ts
+│       │   ├── format.ts
+│       │   ├── sse.ts
+│       │   └── utils.ts
+│       └── store/
+│           └── uiStore.ts
+│
+├── data/
+│   ├── seed.py                        # Popula customer_profile e workshops
+│   ├── seed_customer_profiles.json    # (gitignored — fornecido localmente)
+│   ├── seed_workshops.json            # (gitignored — fornecido localmente)
+│   ├── ingestion/
+│   │   └── ingest.py                  # Pipeline de ingestão de PDFs (Docling → chunk → embed → Mongo)
+│   └── source_docs/
+│       ├── auto/apolice_auto.pdf
+│       ├── residencial/apolice_residencial.pdf
+│       └── vida/apolice_vida.pdf
+│
+├── specifications/
+│   ├── SPEC_agente_claraseg.md
+│   ├── SPEC_interface_claraseg.md
+│   └── SPEC_interface_claraseg_v2.md
+│
+└── documentation/
+    ├── DEMO_SCRIPT.md
+    ├── SETUP.md
+    ├── TECHNICAL.md
+    └── context.md
+```
 
-Esta demo cobre exclusivamente os fluxos consultivos/informativos definidos no exercício técnico. Estão fora do escopo:
+> Arquivos de configuração de IDE/OS (`.claude/`, `.DS_Store`) e artefatos gerados
+> (`node_modules/`, `.venv/`, `__pycache__/`, `dist/`) foram omitidos por não fazerem
+> parte do código-fonte do projeto.
 
-- Autenticação real de usuário (cliente selecionado manualmente na sidebar)
-- Ações transacionais (abertura de sinistro, alteração de dados)
-- Guardrails formais e avaliação automatizada de qualidade de resposta
-- Reranking dos resultados de busca semântica
+## ⚙️ Pré-requisitos e Instalação
+
+**Pré-requisitos:**
+- Python 3.12+
+- Node.js 20+
+- Docker + Docker Compose (opcional, mas recomendado)
+- Cluster MongoDB Atlas com Atlas Vector Search habilitado
+- Chave de API OpenAI
+
+**1. Clonar o repositório**
+
+```bash
+git clone https://github.com/[SEU_USUARIO]/mg-demo.git
+cd mg-demo
+```
+
+**2. Configurar variáveis de ambiente**
+
+```bash
+cp .env.example .env
+# preencher MONGODB_URI, OPENAI_API_KEY e demais variáveis
+```
+
+**3a. Rodar tudo via Docker Compose (recomendado)**
+
+```bash
+docker compose up
+```
+
+Sobe `workshop-mcp` (:8000), `policy-mcp` (:8001), `customer-api` (:8090), `ai-agent` (:8080) e `webapp` (:5173).
+
+**3b. Ou rodar cada serviço localmente**
+
+```bash
+# Dependências Python (raiz do repo, para seed/ingestão)
+pip install -r requirements.txt
+
+# Servidores MCP
+python workshop-mcp/workshop_server.py
+python policy-mcp/policy_server.py
+
+# API do agente
+cd ai-agent && pip install -r requirements.txt
+uvicorn src.api:app --reload --port 8080
+
+# API de clientes
+cd customer-api && npm install && npm run dev
+
+# Frontend
+cd webapp && npm install && npm run dev
+```
+
+**4. Popular o banco**
+
+```bash
+python data/seed.py                                          # customer_profile + workshops
+python data/ingestion/ingest.py --input-dir data/source_docs  # cláusulas de apólice + embeddings
+```
+
+> O índice do Atlas Vector Search **não** pode ser criado via driver — crie-o manualmente na Atlas UI, na
+> coleção `policy_chunks`, campo `embedding` (1536 dimensões, cosine), com `metadata.category` como filtro,
+> nomeado conforme `VECTOR_INDEX_NAME` no `.env`.
+
+## 🖥️ Como Usar / Exemplos
+
+Com os serviços no ar, acesse a interface em `http://localhost:5173`, selecione um cliente na sidebar e converse
+com a Clara.
+
+Chamando a API do agente diretamente:
+
+```bash
+curl -X POST http://localhost:8080/chat \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id": "CUST-001", "message": "Minha apólice de auto cobre vidros?"}'
+```
+
+Streaming (SSE):
+
+```bash
+curl -N -X POST http://localhost:8080/chat/stream \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id": "CUST-001", "message": "Qual o status do meu sinistro?"}'
+```
+
+Principais rotas:
+
+| Serviço | Rota | Descrição |
+|---|---|---|
+| `ai-agent` | `GET /health` | Healthcheck (ping no Mongo) |
+| `ai-agent` | `POST /chat` | Turno completo, resposta única |
+| `ai-agent` | `POST /chat/stream` | Resposta em streaming (SSE) |
+| `customer-api` | `GET /clients` | Lista resumida de clientes |
+| `customer-api` | `GET /clients/:id` | Perfil completo do cliente |
+
+Testes de fumaça ponta a ponta (usa OpenAI + MongoDB reais, ~90-120s):
+
+```bash
+cd ai-agent && python -m tests.test_agent_smoke
+```
+
+## 🤝 Como Contribuir
+
+1. Faça um **fork** deste repositório.
+2. Crie uma branch a partir da `main`: `git checkout -b feature/nome-da-feature`.
+3. Faça commits pequenos e descritivos.
+4. Rode os testes de fumaça relevantes antes de abrir o PR.
+5. Abra um **Pull Request** para a `main` descrevendo o quê e o porquê da mudança.
+
+## 📝 Licença
+
+Não há um arquivo `LICENSE` neste repositório no momento. Recomenda-se adotar a licença **MIT** — crie um
+arquivo `LICENSE` na raiz com o texto padrão MIT, atribuído a `[SEU_NOME]`, para tornar isso explícito.
