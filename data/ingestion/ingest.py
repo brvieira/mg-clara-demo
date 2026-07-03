@@ -22,7 +22,6 @@ Fluxo:
 Requisitos:
     pip install docling langchain-openai pymongo --break-system-packages
 
-Primeira execução do Docling baixa modelos de layout (~alguns GB) — rode antes do demo ao vivo.
 
 Variáveis de ambiente esperadas:
     OPENAI_API_KEY=...
@@ -33,6 +32,7 @@ Variáveis de ambiente esperadas:
 """
 
 from dotenv import load_dotenv
+
 load_dotenv()
 
 import os
@@ -186,7 +186,10 @@ def run(
             continue
 
         if not chunk_iter:
-            log.warning("Nenhum chunk gerado para %s (PDF pode ser scaneado sem OCR)", pdf_path.name)
+            log.warning(
+                "Nenhum chunk gerado para %s (PDF pode ser scaneado sem OCR)",
+                pdf_path.name,
+            )
             continue
 
         # Texto contextualizado: HybridChunker já injeta headings/seção no texto via contextualize()
@@ -195,7 +198,8 @@ def run(
         # Descarta chunks sem conteúdo substantivo (títulos/rótulos de cláusula órfãos,
         # índice do documento) — ver MIN_CHUNK_CHARS acima.
         kept = [
-            (text, raw) for text, raw in zip(contextualized, chunk_iter)
+            (text, raw)
+            for text, raw in zip(contextualized, chunk_iter)
             if len(text.strip()) >= MIN_CHUNK_CHARS
         ]
         discarded = len(contextualized) - len(kept)
@@ -235,7 +239,9 @@ def run(
             try:
                 vectors = embeddings.embed_documents(texts)
             except Exception as exc:
-                log.error("Falha ao gerar embeddings para lote de %s: %s", pdf_path.name, exc)
+                log.error(
+                    "Falha ao gerar embeddings para lote de %s: %s", pdf_path.name, exc
+                )
                 continue
 
             ops = []

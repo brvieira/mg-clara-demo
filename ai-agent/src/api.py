@@ -12,13 +12,22 @@ import json
 import uuid
 
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from src.agent import astream, invoke
+from src.config import CORS_ALLOWED_ORIGINS
 from src.db import get_db
 
 app = FastAPI(title="ClaraSeg Agent API")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ALLOWED_ORIGINS,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class ChatRequest(BaseModel):

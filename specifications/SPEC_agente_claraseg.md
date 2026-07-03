@@ -4,8 +4,6 @@
 
 ClaraSeg é um agente de atendimento ao cliente para uma seguradora de auto/residencial fictícia. O agente responde perguntas sobre cobertura de apólice, status de sinistro e dados de cadastro, usando memória de curto prazo (contexto da conversa atual) e memória de longo prazo (fatos persistentes sobre o cliente entre conversas diferentes), além de busca semântica nas cláusulas do contrato via MongoDB Atlas Vector Search.
 
-Este é um projeto de demonstração técnica (pre-sales), não um sistema de produção. Priorizar clareza de código e capacidade de explicar cada decisão arquitetural sobre robustez de produção (sem necessidade de retry logic elaborado, rate limiting, etc — mas sem deixar o código frágil a ponto de quebrar na demo).
-
 ## 2. Stack técnica
 
 - **Linguagem:** Python 3.11+
