@@ -55,9 +55,9 @@ def render_debug_panel() -> None:
                         if tool_name == "vector_search_clausulas" and isinstance(tool_output, list):
                             for clause in tool_output:
                                 score = clause.get("score", "?")
-                                title = clause.get("title", "?")
-                                st.markdown(f"  - **{title}** `score: {score}`")
-                                with st.expander(f"Ver texto — {clause.get('clause_id', '')}", expanded=False):
+                                section = clause.get("section") or clause.get("source_file", "?")
+                                st.markdown(f"  - **{section}** `score: {score}`")
+                                with st.expander(f"Ver texto — {clause.get('source_file', '')}", expanded=False):
                                     st.write(clause.get("text", ""))
                         elif tool_name == "buscar_oficinas_proximas" and isinstance(tool_output, list):
                             for item in tool_output:

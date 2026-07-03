@@ -1,3 +1,10 @@
+import sys
+from pathlib import Path
+
+# ai-agent/ lives in a sibling directory; add it to sys.path so `from src...`
+# imports used by ui/ and the agent backend resolve.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "ai-agent"))
+
 import streamlit as st
 
 st.set_page_config(

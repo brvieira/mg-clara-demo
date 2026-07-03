@@ -1,6 +1,8 @@
+import logging
 import streamlit as st
 from src import agent
 
+logger = logging.getLogger(__name__)
 
 def render_chat(customer_id: str, thread_id: str) -> None:
     # Exibe histórico
@@ -26,8 +28,8 @@ def render_chat(customer_id: str, thread_id: str) -> None:
                 response = result["response"]
                 st.session_state.last_debug_info = result["debug"]
             except Exception as e:
-                response = f"Erro ao processar sua mensagem. Por favor, tente novamente."
-                st.error(f"Detalhe técnico: {e}")
+                response = f"Erro ao processar sua mensagem. Detalhe técnico: {e}"
+                logger.exception("Erro ao processar mensagem do usuário")
                 st.session_state.last_debug_info = None
 
         st.markdown(response)

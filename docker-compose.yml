@@ -1,0 +1,38 @@
+services:
+  workshop-mcp:
+    build:
+      context: ./workshop-mcp
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8000"
+
+  policy-mcp:
+    build:
+      context: ./policy-mcp
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    environment:
+      MCP_HOST: "0.0.0.0"
+      MCP_PORT: "8001"
+
+  ai-agent:
+    build:
+      context: ./ai-agent
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      # Dentro da rede do compose os servidores MCP são alcançados pelo nome do
+      # serviço, não por localhost (default usado fora do Docker, ver .env.example).
+      WORKSHOP_MCP_URL: "http://workshop-mcp:8000/mcp"
+      POLICY_MCP_URL: "http://policy-mcp:8001/mcp"
+    depends_on:
+      - workshop-mcp
+      - policy-mcp

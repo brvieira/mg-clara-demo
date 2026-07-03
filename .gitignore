@@ -32,6 +32,6 @@ Thumbs.db
 logs/
 
 # Data files (potentially large or sensitive)
-claraseg/data/*.json
-claraseg/data/*.csv
-claraseg/data/*.xlsx
+data/*.json
+data/*.csv
+data/*.xlsx

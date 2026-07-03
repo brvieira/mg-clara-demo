@@ -23,19 +23,29 @@ Antes de começar, verifique que você tem:
 
 ## Etapa 1 — Clonar/abrir o projeto
 
-Se você está lendo este guia dentro do diretório `claraseg/`, você já está no lugar certo. A estrutura deve ser:
+Se você está lendo este guia dentro da raiz do repositório, você já está no lugar certo. A estrutura deve ser:
 
 ```
-claraseg/
-├── app.py
+mg-demo/
 ├── requirements.txt
 ├── .env.example
-├── data/
-├── mcp_servers/
+├── docker-compose.yml
+├── ai-agent/
+│   ├── src/
+│   │   ├── agent.py
+│   │   └── graph/
+│   └── tests/
+├── workshop-mcp/
 │   └── workshop_server.py
-├── src/
-├── ui/
-└── tests/
+├── webapp/
+│   ├── app.py
+│   └── ui/
+├── data/
+│   ├── seed.py
+│   ├── ingestion/
+│   └── source_docs/
+├── specifications/
+└── documentation/
 ```
 
 ---
@@ -45,7 +55,7 @@ claraseg/
 É fortemente recomendado usar um ambiente virtual para isolar as dependências.
 
 ```bash
-# Dentro do diretório claraseg/
+# Na raiz do repositório
 python -m venv .venv
 ```
 
@@ -125,7 +135,7 @@ A instalação pode levar 1-2 minutos.
 
 ## Etapa 5 — Criar o arquivo `.env`
 
-Na raiz do diretório `claraseg/`, copie o arquivo de exemplo:
+Na raiz do repositório, copie o arquivo de exemplo:
 
 ```bash
 cp .env.example .env
@@ -154,8 +164,8 @@ VECTOR_INDEX_NAME=policy_clauses_vector_index
 Este script cria as coleções `policy_clauses` e `customer_profile`, insere os dados de exemplo e **gera os embeddings** para cada cláusula usando a API da OpenAI.
 
 ```bash
-# Execute a partir do diretório claraseg/
-python -m src.seed
+# Execute a partir da raiz do repositório
+python data/seed.py
 ```
 
 Saída esperada:
@@ -235,7 +245,7 @@ Antes de rodar a aplicação completa, teste o servidor MCP isoladamente para ga
 
 ```bash
 # Verifica se o servidor inicia sem erro (Ctrl+C para encerrar)
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | python mcp_servers/workshop_server.py
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | python workshop-mcp/workshop_server.py
 ```
 
 Saída esperada (JSON com as duas tools disponíveis):
@@ -252,7 +262,7 @@ Se aparecer `ModuleNotFoundError: No module named 'mcp'`, o pacote não foi inst
 Antes de rodar a interface, valide que o backend está funcionando corretamente executando os testes de fluxo ponta a ponta:
 
 ```bash
-python -m tests.test_agent_smoke
+cd ai-agent && python -m tests.test_agent_smoke
 ```
 
 Os testes cobrem 8 critérios de aceite do projeto:
@@ -316,7 +326,7 @@ Saída esperada (pode demorar 90-120 segundos):
 ## Etapa 10 — Rodar a aplicação
 
 ```bash
-streamlit run app.py
+streamlit run webapp/app.py
 ```
 
 O Streamlit abrirá automaticamente no navegador em `http://localhost:8501`. Se não abrir automaticamente, acesse o endereço manualmente.
@@ -371,11 +381,12 @@ O Streamlit abrirá automaticamente no navegador em `http://localhost:8501`. Se 
 
 ### "No module named 'src'"
 
-Execute os comandos sempre a partir do diretório `claraseg/`, não de um subdiretório:
+Comandos relacionados ao agente (`python -m tests.test_agent_smoke`, verificação de config, etc.) devem ser executados a partir do diretório `ai-agent/`, não de um subdiretório:
 ```bash
-cd /caminho/para/claraseg
-python -m src.seed   # correto
+cd /caminho/para/mg-demo/ai-agent
+python -m tests.test_agent_smoke   # correto
 ```
+Já `data/seed.py` e `webapp/app.py` podem ser executados a partir da raiz do repositório — eles adicionam `ai-agent/` ao `sys.path` automaticamente.
 
 ### Vector search retorna lista vazia
 
@@ -403,7 +414,7 @@ O `chat_history` em `session_state` é perdido ao recarregar a página (F5). Iss
 Possíveis causas:
 1. **O LLM não reconheceu intenção de busca de oficina** — reformule: _"Preciso de uma oficina parceira para reparar o carro após o sinistro de colisão"_ é mais explícito que _"tem alguma oficina?"_
 2. **`ModuleNotFoundError: mcp`** durante a invocação — `pip install -r requirements.txt` novamente
-3. **Erro de subprocess** — verifique se `python mcp_servers/workshop_server.py` roda sem erros no terminal
+3. **Erro de subprocess** — verifique se `python workshop-mcp/workshop_server.py` roda sem erros no terminal
 
 ### `RuntimeError: This event loop is already running`
 
@@ -418,21 +429,21 @@ O LLM não deveria inventar — o sistema prompt instrui explicitamente a usar a
 ## Comandos de referência rápida
 
 ```bash
-# Ativar ambiente virtual
+# Ativar ambiente virtual (raiz do repositório)
 source .venv/bin/activate
 
 # Re-popular o banco (reseta dados)
-python -m src.seed
+python data/seed.py
 
 # Testar o servidor MCP isoladamente
-echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | python mcp_servers/workshop_server.py
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | python workshop-mcp/workshop_server.py
 
-# Rodar testes ponta a ponta
-python -m tests.test_agent_smoke
+# Rodar testes ponta a ponta (a partir de ai-agent/)
+cd ai-agent && python -m tests.test_agent_smoke && cd ..
 
 # Subir a interface
-streamlit run app.py
+streamlit run webapp/app.py
 
-# Verificar se o .env está carregando corretamente
-python -c "from src.config import MONGODB_URI, OPENAI_API_KEY; print('OK')"
+# Verificar se o .env está carregando corretamente (a partir de ai-agent/)
+cd ai-agent && python -c "from src.config import MONGODB_URI, OPENAI_API_KEY; print('OK')" && cd ..
 ```

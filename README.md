@@ -6,27 +6,40 @@ A Clara responde perguntas sobre cobertura de apólice e status de sinistro em l
 
 ---
 
+## Estrutura do repositório
+
+| Diretório | Conteúdo |
+|---|---|
+| `ai-agent/` | Backend do agente (LangGraph, memória, tools, `src/`) e testes |
+| `workshop-mcp/` | Servidor MCP standalone (rede de oficinas parceiras) |
+| `webapp/` | Interface Streamlit (`app.py` + `ui/`) |
+| `data/` | Seed do banco, pipeline de ingestão e PDFs de origem (`source_docs/`) |
+| `specifications/` | Especificações originais do agente e da interface |
+| `documentation/` | Guia de setup, documentação técnica e contexto de negócio |
+
+---
+
 ## Arquitetura
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     app.py (Streamlit)                      │
+│               webapp/app.py (Streamlit)                     │
 │         sidebar.py  ──  chat.py  ──  debug_panel.py         │
 └────────────────────────┬────────────────────────────────────┘
                          │ invoke(thread_id, customer_id, msg)
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                      src/agent.py                           │
+│                  ai-agent/src/agent.py                      │
 │      (async internamente; asyncio.run() na borda pública)   │
 └────────────────────────┬────────────────────────────────────┘
                          │
               ┌──────────┴──────────┐
-              │  MultiServerMCP     │── stdio ──► mcp_servers/
+              │  MultiServerMCP     │── stdio ──► workshop-mcp/
               │  Client             │            workshop_server.py
               └──────────┬──────────┘            (subprocesso)
                          ▼
 ┌─────────────────────────────────────────────────────────────┐
-│              LangGraph StateGraph (src/graph/)              │
+│         LangGraph StateGraph (ai-agent/src/graph/)          │
 │                                                             │
 │  START → load_memory → reasoning ←──────────────────┐      │
 │                            │                        │      │
@@ -111,7 +124,7 @@ O índice precisa ser criado manualmente na Atlas UI (criação programática n�
 
 ### Integração MCP — rede de oficinas
 
-O servidor `mcp_servers/workshop_server.py` (implementado com `FastMCP`) roda como subprocesso via stdio e expõe duas tools:
+O servidor `workshop-mcp/workshop_server.py` (implementado com `FastMCP`) roda como subprocesso via stdio e expõe duas tools:
 
 - **`buscar_oficinas_proximas(cep, tipo_servico)`** — retorna até 3 oficinas parceiras ordenadas por distância.
 - **`consultar_agenda_pericia(oficina_id, urgencia)`** — retorna 3 slots disponíveis para perícia.
@@ -139,9 +152,9 @@ As coleções gerenciadas pelo LangGraph têm schema interno — não devem ser 
 
 | Módulo | Responsabilidade |
 |---|---|
-| `ui/sidebar.py` | Seleção de cliente e controle de `thread_id` |
-| `ui/chat.py` | Renderização do histórico e captura de input |
-| `ui/debug_panel.py` | Painel de transparência com dados de cada interação |
+| `webapp/ui/sidebar.py` | Seleção de cliente e controle de `thread_id` |
+| `webapp/ui/chat.py` | Renderização do histórico e captura de input |
+| `webapp/ui/debug_panel.py` | Painel de transparência com dados de cada interação |
 
 O painel de debug (expandível) exibe: cláusulas retornadas pelo vector search com score de similaridade, fatos de longo prazo usados na resposta e fato novo gravado — tornando a arquitetura visível durante a demonstração.
 
@@ -158,7 +171,6 @@ O painel de debug (expandível) exibe: cláusulas retornadas pelo vector search 
 ### Instalação
 
 ```bash
-cd claraseg
 pip install -r requirements.txt
 cp .env.example .env
 # preencher MONGODB_URI, OPENAI_API_KEY e MONGODB_DB_NAME no .env
@@ -167,7 +179,7 @@ cp .env.example .env
 ### Seed do banco
 
 ```bash
-python -m src.seed
+python data/seed.py
 ```
 
 Popula `customer_profile` e `policy_clauses` (com embeddings gerados via OpenAI).
@@ -198,7 +210,7 @@ Selecione a coleção `policy_clauses` e nomeie o índice conforme `VECTOR_INDEX
 ### Executar
 
 ```bash
-streamlit run app.py
+streamlit run webapp/app.py
 ```
 
 ---
