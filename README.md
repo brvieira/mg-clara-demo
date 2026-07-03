@@ -20,6 +20,7 @@ em PDF) e **sistemas transacionais de terceiros** (oficinas parceiras, agendamen
 estáticas e chatbots baseados em regras não resolvem bem.
 
 O agente entrega:
+
 - Respostas ancoradas nas cláusulas reais da apólice do cliente (não alucinadas), via busca semântica.
 - Continuidade entre conversas: lembra fatos duráveis do cliente (troca de veículo, mudança de endereço) mesmo em uma nova sessão.
 - Capacidade de agir, não só informar: consulta oficinas próximas, agenda/altera/cancela perícias e cria/atualiza apólices através de servidores MCP externos.
@@ -35,18 +36,18 @@ O agente entrega:
 
 ## 🛠️ Tecnologias Utilizadas
 
-| Camada | Tecnologia |
-|---|---|
-| Orquestração do agente | LangGraph (grafo de estados: `load_memory → reasoning ↔ tools_node → save_memory`) |
-| LLM / embeddings | OpenAI `gpt-4o-mini` + `text-embedding-3-small` |
-| Memória curto/longo prazo | `langgraph-checkpoint-mongodb` / `langgraph-store-mongodb` |
-| Banco de dados | MongoDB Atlas + Atlas Vector Search |
-| Ingestão de PDFs | Docling (`HybridChunker`) |
-| API do agente | FastAPI (`/health`, `/chat`, `/chat/stream` via SSE) |
-| Ferramentas externas | MCP (`FastMCP`, transporte HTTP/streamable-http) |
-| API de clientes | Node.js + Express + TypeScript |
-| Frontend | React 19 + Vite + TypeScript + Tailwind + Zustand |
-| Infraestrutura | Docker / Docker Compose, Nginx (serve o build do webapp) |
+| Camada                    | Tecnologia                                                                         |
+| ------------------------- | ---------------------------------------------------------------------------------- |
+| Orquestração do agente    | LangGraph (grafo de estados: `load_memory → reasoning ↔ tools_node → save_memory`) |
+| LLM / embeddings          | OpenAI `gpt-4o-mini` + `text-embedding-3-small`                                    |
+| Memória curto/longo prazo | `langgraph-checkpoint-mongodb` / `langgraph-store-mongodb`                         |
+| Banco de dados            | MongoDB Atlas + Atlas Vector Search                                                |
+| Ingestão de PDFs          | Docling (`HybridChunker`)                                                          |
+| API do agente             | FastAPI (`/health`, `/chat`, `/chat/stream` via SSE)                               |
+| Ferramentas externas      | MCP (`FastMCP`, transporte HTTP/streamable-http)                                   |
+| API de clientes           | Node.js + Express + TypeScript                                                     |
+| Frontend                  | React 19 + Vite + TypeScript + Tailwind + Zustand                                  |
+| Infraestrutura            | Docker / Docker Compose, Nginx (serve o build do webapp)                           |
 
 ## 📦 Estrutura de Pastas
 
@@ -57,7 +58,6 @@ mg-demo/
 ├── CLAUDE.md
 ├── README.md
 ├── docker-compose.yml
-├── logotipo.png
 ├── requirements.txt
 │
 ├── ai-agent/                          # Backend do agente: grafo LangGraph, memória, tools, API FastAPI
@@ -187,6 +187,7 @@ mg-demo/
 ## ⚙️ Pré-requisitos e Instalação
 
 **Pré-requisitos:**
+
 - Python 3.12+
 - Node.js 20+
 - Docker + Docker Compose (opcional, mas recomendado)
@@ -270,13 +271,13 @@ curl -N -X POST http://localhost:8080/chat/stream \
 
 Principais rotas:
 
-| Serviço | Rota | Descrição |
-|---|---|---|
-| `ai-agent` | `GET /health` | Healthcheck (ping no Mongo) |
-| `ai-agent` | `POST /chat` | Turno completo, resposta única |
-| `ai-agent` | `POST /chat/stream` | Resposta em streaming (SSE) |
-| `customer-api` | `GET /clients` | Lista resumida de clientes |
-| `customer-api` | `GET /clients/:id` | Perfil completo do cliente |
+| Serviço        | Rota                | Descrição                      |
+| -------------- | ------------------- | ------------------------------ |
+| `ai-agent`     | `GET /health`       | Healthcheck (ping no Mongo)    |
+| `ai-agent`     | `POST /chat`        | Turno completo, resposta única |
+| `ai-agent`     | `POST /chat/stream` | Resposta em streaming (SSE)    |
+| `customer-api` | `GET /clients`      | Lista resumida de clientes     |
+| `customer-api` | `GET /clients/:id`  | Perfil completo do cliente     |
 
 Testes de fumaça ponta a ponta (usa OpenAI + MongoDB reais, ~90-120s):
 

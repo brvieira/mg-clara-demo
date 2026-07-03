@@ -29,7 +29,7 @@ export function AppHeader() {
           className="h-[30px] w-auto object-contain"
         />
         <span className="hidden text-xs font-light text-[var(--vz-muted)] sm:inline">
-          Clara - Assistente virtual da Vivaz Seguros
+          Clara - Agente de Atendimento da Vivaz Seguros
         </span>
       </div>
 
